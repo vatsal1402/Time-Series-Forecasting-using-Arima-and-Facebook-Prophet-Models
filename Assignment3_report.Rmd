@@ -1,0 +1,734 @@
+---
+title: "Life Expectancy Data Time Series Analysis"
+author: "Vatsal Gangal"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+---
+# Section 1 : Introduction
+
+## Dataset Description
+
+#### The Dataset is taken from the [gapminder.org](https://www.gapminder.org/) website.
+#### The Dataset contains information about the life expectancy of **India** starting from the year **1950-2020** 
+#### Life Expectancy is the key metric for assessing population health. Broader than the narrow metric of the infant and child mortality which focuses solely at mortality at a young age, life expectancy captures the mortality along the entire life course.Observing the changes in the life expectancy over time especially for a country like India which has a very large population helps us get a good idea about how the country is developing in terms of population health.
+
+## Importing Relevant libraries
+```{r}
+library(tidyverse)
+library(lubridate)
+library(tseries)
+library(forecast)
+library(prophet)
+library(prettydoc)
+```
+ 
+## Importing Dataset
+```{r}
+life_data <- read.csv("life_expectancy_years.csv")
+```
+
+```{r echo=FALSE}
+colnames(life_data)[1] <- "country"
+life_data <- life_data[which(life_data$country == "India"),names(life_data) %in% c("country","X1950","X1951","X1952","X1953","X1954","X1955","X1956","X1957","X1958","X1959","X1960", "X1961","X1962","X1963","X1964","X1965"                                                                                ,"X1966","X1967","X1968","X1969","X1970","X1971","X1972","X1973","X1974","X1975","X1976","X1977"     
+                                                                                ,"X1978","X1979","X1980","X1981","X1982","X1983","X1984","X1985","X1986","X1987","X1988","X1989"     
+                                                                                      ,"X1990","X1991","X1992","X1993","X1994","X1995","X1996","X1997","X1998","X1999","X2000","X2001"     
+                                                                                      ,"X2002","X2003","X2004","X2005","X2006","X2007","X2008","X2009","X2010","X2011","X2012","X2013"     
+                                                                                      , "X2014","X2015","X2016","X2017","X2018","X2019","X2020")]
+
+```
+
+
+\
+
+
+# Section 2: Exploratory Data Analysis
+
+### Next we convert the data from the given wide format to a long format for conducting our analysis.\
+
+```{r}
+life_data <- life_data %>% 
+  pivot_longer(2:72,names_to = "year", values_to = "life_expectancy")
+head(life_data)
+```
+
+### The column names of the data needs to be changed to give a clear information about the values contained in them.\
+```{r}
+colnames(life_data) <- c("country", "year","life_expectancy")
+
+```
+
+### Analyzing the structure of the dataset and the datatypes of each column\
+```{r}
+str(life_data)
+```
+
+
+#### The year column is not properly formatted and has incorrect data type which can cause problem while running a linear regression model. 
+
+```{r}
+life_data$year <- gsub("X","",life_data$year)
+life_data$year <-  year(as.Date.character(life_data$year,"%Y"))
+```
+
+
+## Checking Missing values in the data
+
+```{r}
+colSums(is.na(life_data))
+```
+
+#### There are no missing values in the data.\
+
+## Outliers Analysis
+* ### Summary of the Dataset gives information about whether the dataset contains any abnormal values or not
+* ### Visualizations like Boxplots can also help identify if any varibale lies outside general distribution.
+
+### Summary Statistics
+
+```{r}
+summary_table <- summary(life_data)
+knitr::kable(summary_table, caption = 'Summary table')
+```
+
+\
+
+### Boxplot of life expectancy values
+```{r}
+life_data %>% 
+  ggplot(aes(country,life_expectancy)) + 
+  geom_boxplot(outlier.color = 'red') +
+  xlab("Country") + 
+  ylab("Life Expectancy")
+```
+
+#### From the summary of the data and the boxplot we can see that there are no Outliers present in the data.
+
+\
+
+## Exploratory Data Analysis
+
+### Line Chart of life expectancy
+```{r}
+life_data %>% 
+  ggplot(aes(year,life_expectancy)) + 
+  geom_line() + 
+  xlab("Year") + 
+  ylab("Life Expectancy") + 
+  labs(
+    title = 'Change in Life Expectancy of people in India ',
+    subtitle = 'Year 1950 - 2020'
+  )
+```
+
+\
+
+### Bar Chart of life expectancy
+```{r}
+life_data %>% 
+  ggplot(aes(year, life_expectancy)) + 
+  geom_col(alpha = 0.5, colour = 'green') + 
+  xlab("Year") + 
+  ylab("Life Expectancy") + 
+  labs(
+    title = 'Change in Life Expectancy of people in India ',
+    subtitle = 'Year 1950 - 2020'
+  )
+```
+
+#### The above visualizations show that the life expectancy of people in India has continued to increase over the years
+
+\
+
+# Section 3 : Modelling
+
+## Linear regression Modelling
+
+```{r}
+model <- lm(life_expectancy ~ year, data = life_data)
+summary(model)
+```
+
+\
+
+#### From the summary statistics we can see the following:\
+* **All else held constant with every one year increase, The life expectancy increases by 0.4202 units as interpreted from the coefficient of year from summary table** 
+* **The p value is very small (<2e-16) indicating that the predictor variable year has strong influence on our target variable life expectancy**
+* **The R-squared value is 0.9888 indicating that the 98.8% variation in the life expectancy data is explained by the predictor variable year** 
+
+```{r}
+life_data %>% 
+  ggplot(aes(year,life_expectancy)) + 
+  geom_line() + 
+  geom_smooth(aes(year, life_expectancy), method = 'lm', color = 'red') + 
+  xlab("Year") + 
+  ylab("Life Expectancy") + 
+  labs(
+    title = 'Linear trend plot on top of the data ',
+    subtitle = 'Year 1950 - 2020'
+  )
+```
+
+
+\
+
+
+# Section 4 : Arima Modelling
+
+#### Before using ARIMA models for analysing our time series we need to check whether our series is staionary or not meaning that whther the  series has constant mean and variance or not
+
+\
+
+
+### Checking mean and variance stationarity
+
+#### Rolling mean plot : Checking mean stationarity
+```{r,fig.align='center', warning=FALSE}
+life_data %>% 
+  mutate(roll_mean = zoo::rollmean(life_expectancy,
+                                   k = 5,
+                                   fill = NA)) %>% 
+  ggplot(aes(x = year, y = roll_mean)) + 
+  geom_line() + 
+  xlab("Year") + 
+  ylab("Life Expectancy") + 
+  labs(
+    title = 'Change in Mean of Life Expectancy over time ',
+    subtitle = 'Year 1950 - 2020')
+```
+
+\
+
+#### Rolling Standard deviation plot : : Checking variance stationarity
+```{r, fig.align='center', warning=FALSE}
+life_data %>%
+  mutate(roll_sd = zoo::rollapply(life_expectancy,
+                                 FUN = sd,
+                                 width = 5,
+                                 fill = NA)) %>% 
+  ggplot(aes(x = year, y = roll_sd)) + 
+  geom_line() + 
+  xlab("Year") + 
+  ylab("Life Expectancy") + 
+  labs(
+    title = 'Change in Variance of Life Expectancy over time ',
+    subtitle = 'Year 1950 - 2020')
+```
+
+* #### The time series has non constant mean which suggests that is Mean Non-Stationary
+* #### The Rolling standard deviation plot shows non constant variance which suggests that the time series is also Variance Non-Stationary
+
+\
+
+### Dealing with Variance Non-Stationary
+#### Variable transformation is one way of dealing with Variance Non-Stationary. Two Useful transformations are:
+* ##### **Log Transformations**
+* ##### **Box-Cox Transformations**
+
+\
+
+```{r}
+life_data_transform <- life_data %>% 
+  mutate(life_expectancy_log = log1p(life_expectancy),
+         life_expectancy_boxcox = BoxCox(life_expectancy, lambda = 'auto'))
+ 
+head(life_data_transform)
+```
+
+\
+
+### Plot of Life Expectancy over time : Log Transformation
+```{r, fig.align='center', warning=FALSE}
+life_data_transform %>% 
+  ggplot(aes(year,life_expectancy_log)) + 
+  geom_line() + 
+  xlab("Year") +
+  ylab("Log of Life expectancy") + 
+  labs(
+    title = 'Life Expectancy over time (Log) ',
+    subtitle = 'Year 1950 - 2020')
+```
+
+\
+
+### Plot of Life Expectancy over time : BoxCox Transformation
+```{r, fig.align='center', warning=FALSE}
+life_data_transform %>% 
+  ggplot(aes(year,life_expectancy_boxcox)) + 
+  geom_line() + 
+  xlab("Year") +
+  ylab("Log of Life expectancy") + 
+  labs(
+    title = 'Life Expectancy over time (BoxCox Transformation) ',
+    subtitle = 'Year 1950 - 2020')
+```
+
+
+#### The plots for both the transformed variables are similar so we can use either of the transformations for achieving stationarity
+
+####Next we check the plots of rolling standard deviation plot for checking which transformation can help us achieve Variance stationarity
+
+\
+
+#### Rolling standard deviation for Log Tranformation 
+
+```{r, fig.align='center', warning=FALSE}
+life_data_transform %>% 
+  mutate(roll_sd = zoo::rollapply(life_expectancy_log,
+                                  FUN = sd,
+                                  width = 5,
+                                  fill = NA)) %>% 
+           ggplot(aes(x = year, y = roll_sd)) + 
+           geom_line() + 
+           xlab("Year") + 
+           ylab("Life Expectancy") + 
+           labs(
+             title = 'Rolling standard deviation of the transformed Life Expectance ',
+             subtitle = 'Year 1950 - 2020')
+```
+
+\
+
+#### Rolling standard deviation for Box Cox Tranformation
+
+```{r, fig.align='center', warning=FALSE}
+life_data_transform %>% 
+  mutate(roll_sd = zoo::rollapply(life_expectancy_boxcox,
+                                  FUN = sd,
+                                  width = 5,
+                                  fill = NA)) %>% 
+  ggplot(aes(x = year, y = roll_sd)) + 
+  geom_line() + 
+  xlab("Year") + 
+  ylab("Life Expectancy") + 
+  labs(
+    title = 'Rolling standard deviation of the transformed Life Expectance ',
+    subtitle = 'Year 1950 - 2020')
+```
+
+#### The BoxCox transformation does a better job in resolving variance non-stationary than the Log transformation. Hence we decide to proceed with Box cox transformation.
+
+\
+
+### Handling Mean Stationarity
+
+#### Taking First Difference to induce mean stationarity
+```{r}
+life_data_transform <- life_data_transform %>% 
+  mutate(first_difference = life_expectancy_boxcox - lag(life_expectancy_boxcox))
+head(life_data_transform)
+```
+
+\
+
+```{r, fig.align='center', warning=FALSE}
+life_data_transform %>% 
+  ggplot(aes(x = year, y = first_difference)) + 
+  geom_line() + 
+  xlab("Year") + 
+  ylab("First Difference : Life Expectancy") + 
+  labs(
+    title = 'First difference plot for Life expectancy for checking mean stationarity ',
+    subtitle = 'Year 1950 - 2020')
+mean(life_data_transform$first_difference, na.rm = TRUE)
+```
+
+\
+
+### Testing for stationarity : *ADF Test and KPSS Test*
+#### Defining The tests
+* #### Augmented Dickey-Fuller (ADF) Test
+  * #### p-value < 0.05 indicates stationary
+
+* #### KPSS Test
+  * #### p-value < 0.05 indicates non-stationary
+
+
+```{r, warning=FALSE}
+adf.test(life_data_transform$first_difference[!is.na(life_data_transform$first_difference)])
+
+```
+
+```{r, warning=FALSE}
+kpss.test(life_data_transform$first_difference[!is.na(life_data_transform$first_difference)])
+```
+
+
+* #### P-value given by the ADF test is **p-value = 0.2858** which suggests that the series is Non-stationary
+* #### P-value given by the ADF test is **p-value = 0.1** which suggests that the series is Stationary
+
+\
+
+#### Since KPSS test gives more accurate results than ADF test we take the results KPSS test for reference.
+
+#### Taking reference from the KPSS test and the plot of first difference we can conclude that the series is stationary
+
+\
+
+### ACF and PACF plot
+```{r}
+par(mfrow = c(1,2))
+acf(life_data_transform$first_difference[!is.na(life_data_transform$first_difference)],lag.max = 20)
+pacf(life_data_transform$first_difference[!is.na(life_data_transform$first_difference)],lag.max = 20)
+
+```
+
+
+#### The ACF and PACF plot does not give a clear indication about whether the series is Auto Regressive(AR) or Moving Average(MA), So we test a Bunch of models and compare their *AIC and BIC* values.
+
+```{r, warning=FALSE}
+AIC(arima(life_data_transform$life_expectancy_boxcox, order = c(1,1,0)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,1,0)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,1,1)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,0,1)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,0,2)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,0,3)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,1,2)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,1,3)))
+```
+
+```{r, warning=FALSE}
+BIC(arima(life_data_transform$life_expectancy_boxcox, order = c(1,1,0)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,1,0)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,1,1)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,0,1)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,0,2)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,0,3)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,1,2)),
+    arima(life_data_transform$life_expectancy_boxcox, order = c(0,1,3)))
+```
+
+\
+
+#### The model with order (1,1,0) has the lowest AIC value as compared to other models. 
+#### One thing to note is that the model with order(0,1,3) also has comparable AIC and BIC values to the (1,1,0) model.
+
+```{r}
+observed_best_model <- arima(life_data_transform$life_expectancy_boxcox, order = c(1,1,0))
+summary(observed_best_model)
+```
+
+\
+
+#### Using auto.arima function in R to find the best fitting arima model
+```{r}
+auto_arima_model <- auto.arima(life_data_transform$life_expectancy_boxcox,stepwise = FALSE, approximation = FALSE)
+summary(auto_arima_model)
+```
+
+\
+
+### Residual Diagnostics and Ljung-Box test for Autocorrelation in Residuals 
+
+#### *Observed Best model (order = (1,1,0))*
+```{r}
+forecast::checkresiduals(observed_best_model)
+observed_resid <- observed_best_model$residuals
+acf(observed_resid, lag.max = 20)
+pacf(observed_resid, lag.max = 20)
+
+```
+
+* #### We can see **statistically significant** lags in both the ACF and PACF plot
+* #### From the Ljung-Box test the *p value is 0.0122* which is less than the threshold of *0.05* suggesting that there exists auto correlation between the residuals of this model
+
+\
+
+#### *Auto arima model (order = (0,1,3))*
+```{r}
+forecast::checkresiduals(auto_arima_model)
+auto_arima_resid <- auto_arima_model$residuals
+acf(auto_arima_resid, lag.max = 20)
+pacf(auto_arima_resid, lag.max = 20)
+
+```
+
+* #### We can see **no statistically significant lag** in both the ACF and PACF plot
+* #### From the Ljung-Box test the *p value is 0.88* which is greater than the threshold of *0.05* suggesting that there is no auto correlation between the residuals of this model
+
+### Inferences from the Residual Diagnostics
+* #### The auto arima model does not contain any auto correlation between the residuals as compared to the our observed best model
+* #### The residual plot of the auto arima model is much closer to the white noise as compared to our observed best model
+
+#### So taking the above inferences into account even though the aic and bic values of the auto arima model are slighlty higher than our observed best model I decide to go with auto arima model as the best model for further analysis.
+
+\
+
+### Estimating Performance (In-sample)
+#### RMSE Value
+```{r}
+best_lambda <- attr(BoxCox(life_data$life_expectancy, lambda = 'auto'),'lambda')
+insample_pred <- auto_arima_model$residuals + life_data_transform$life_expectancy_boxcox
+insample_pred <- InvBoxCox(insample_pred,lambda = best_lambda) 
+
+RMSE <- sqrt(mean((insample_pred - life_data_transform$life_expectancy)^2, na.rm = TRUE))
+
+MAE <- mean(abs(insample_pred - life_data_transform$life_expectancy))
+
+MAPE <- mean(abs((insample_pred - life_data_transform$life_expectancy)/life_data_transform$life_expectancy))
+
+print(paste("RMSE:",round(RMSE,2)))
+print(paste("MAE:",round(MAE,2)))
+print(paste("MAPE:",round(MAPE,2)))
+
+```
+
+\
+
+
+```{r, fig.align='center', warning=FALSE}
+ggplot() + 
+  geom_line(aes(life_data_transform$year,life_data_transform$life_expectancy)) + 
+  geom_line(aes(life_data_transform$year, insample_pred), color = 'red') + 
+  labs(
+    title = 'Plotting the actual data and the insample predictions',
+    subtitle = 'Year 1950 - 2020')
+```
+
+#### The insample predictions(** in red color**) are in line with the observed life expectancy values
+
+\
+
+### Prediction for next 5 years
+
+```{r}
+predictions <- forecast(auto_arima_model,h=5)
+summary(predictions)
+
+```
+
+\
+
+#### To get the true values we need to take the inverse transformation\
+```{r}
+predict_values <- predictions$mean
+true_values <- InvBoxCox(predict_values,lambda = best_lambda)
+Table1 <- data.frame(
+  year = 2021:2025,
+  prediction = true_values)
+head(Table1)
+```
+
+\
+
+```{r}
+Table2 <- life_data %>% 
+  mutate(insample_prediction = insample_pred) %>% 
+  full_join(Table1)
+
+Table2$prediction <- ifelse(is.na(Table2$prediction),Table2$insample_prediction,Table2$prediction) 
+Table3 <- Table2 %>% 
+  select(year,prediction)
+```
+
+\
+
+### Prediction Plot
+```{r, fig.align='center', warning=FALSE}
+ggplot() +
+  geom_line(data = Table3, aes(year,prediction)) + 
+  geom_line(data = life_data, aes(year, life_expectancy), color = 'blue') + 
+  geom_point(data = Table2, aes(year,insample_prediction), color = 'red') + 
+  geom_ribbon(aes(x = Table1$year,ymin = InvBoxCox(predictions$lower[,2],lambda = best_lambda),
+                  ymax = InvBoxCox(predictions$upper[,2],lambda = best_lambda),fill = 'blue',alpha = 0.2)) +
+  labs(
+    title = 'Predicting the life expectancy for the next five years',
+    subtitle = 'Year 1950 - 2025')
+```
+
+* #### From the plot we can infer that the life expectancy of individuals in India is expected to increase although by a small margin.
+* #### The dotted red line represents the in-sample predictions
+* #### The blue line represents the actual time series data
+* #### The red ribbon at the end represents the prediction
+
+\ 
+
+# Section 5 : Facebook Prophet Model
+
+### We use the life expectancy data to build a prophet model to understand if our data has any elements like,
+* #### Seasonality :  These are trends or patterns that repeat in every cycle can be daily,weekly, monthly, yearly
+* #### Trends : Estimated along the data identified using changepoint detection
+* #### Effect of Holidays : Any specific national holidays that may impact the forecast of our data
+
+\
+
+### Preparing the data for fitting in a model
+
+```{r}
+prophet_data <- life_data 
+prophet_data$year <- as.Date(ISOdate(prophet_data$year,1,1))
+prophet_data <- prophet_data %>% 
+  rename(ds = year,
+         y = life_expectancy) %>% 
+  select(ds,y)
+head(prophet_data)
+```
+
+\
+
+### Splitting the data for training and testing
+
+\
+
+#### Training Data
+```{r}
+train <- prophet_data[1:56,]
+head(train)
+```
+
+#### Testing Data
+```{r}
+test <- prophet_data[57:71,]
+head(test)
+```
+
+
+### We use the prophet library to fit a basic prophet model
+#### Since our data is about yearly life expectancy we can turn off the yearly seasonality to accuratly see the performance of prophet model
+
+```{r}
+prophet_model <- prophet(train,yearly.seasonality = FALSE)
+```
+
+\
+
+### Forecasting further periods in the future to compare our results with the test data
+```{r}
+future <- make_future_dataframe(prophet_model,periods = 18,freq = "year")
+head(unique(future))
+```
+
+```{r}
+forecast <- predict(prophet_model,future)
+```
+
+\
+
+### Plot of the forecasted vs the fitted values
+```{r}
+plot(prophet_model,forecast) + 
+  ylab("Life Expectancy") + 
+  xlab("Date") + 
+  theme_bw()
+```
+
+#### As we can se from the plots that our forecasts and fitted values are aligned with each other very well suggesting that our model is accurate in performing forecasts for the particular data
+
+\
+
+### Other Interactive plot 
+```{r}
+dyplot.prophet(prophet_model,forecast)
+```
+
+### Decomposing our time series to identify if any seasonal trends
+
+```{r}
+prophet_plot_components(prophet_model,forecast)
+```
+
+* #### From the decomposition plot above we can see that there is a clear upward trend in the data which is visible from the time series plot as well.
+
+* #### If we observe the yearly plot we do not see a clear pattern in the data suggesting that their might not be any sort of seasonality factor that might be affecting our time series. 
+
+#### So we can conclude that there are no visible seasonal trends present in our data.
+
+\
+
+### Changepoint detection using our prophet model to understand the overall trend in the data
+```{r}
+plot(prophet_model,forecast) + 
+  add_changepoints_to_plot(prophet_model) + 
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("Life Expectancy")
+```
+
+#### The algorithm identifies 4 potential change points that can account for change in the trends. It is clearly visible from the plot as well that apart from these 4 change points identified there are no other changepoints that might have been missed out from our analysis.
+
+### Comparing our forecasts with the test data
+```{r}
+forecast_metric_data <- forecast %>% 
+  as_tibble() %>% 
+  mutate(ds = as.Date(ds)) %>% 
+  filter(ds >= ymd("2006-01-01"))
+
+forecast_plot = ggplot() +
+  geom_line(aes(test$ds,test$y)) +
+  geom_line(aes(forecast_metric_data$ds,forecast_metric_data$yhat),color = 'red')
+
+forecast_plot
+```
+
+#### From the forecast plot above we can see that the forecasted and the test values have very less difference.Our model forecasts are inline with our test data values.
+
+\
+
+# Section 6 : Model Comparison and Validation
+
+\
+
+
+### Assessing the prophet model performance by calculating RMSE,MAE,MAPE values
+
+```{r warning=FALSE}
+RMSE <- sqrt(mean((test$y - forecast_metric_data$yhat)^2))
+
+MAE <- mean(abs(test$y - forecast_metric_data$yhat))
+
+MAPE <- mean(abs((test$y - forecast_metric_data$yhat)/test$y))
+
+print(paste("RMSE:",round(RMSE,2)))
+print(paste("MAE:",round(MAE,2)))
+print(paste("MAPE:",round(MAPE,2)))
+```
+
+
+### Rolling window cross validation to assess performance of the model
+
+```{r results='hide', warning='FALSE'}
+df_cv <- cross_validation(prophet_model, initial = 365, horizon = 1, units = "days")
+```
+
+```{r}
+unique(df_cv$cutoff)
+```
+
+\
+
+### Cross Validation Actual Vs Predicted
+```{r}
+df_cv %>% 
+  ggplot()+
+  geom_point(aes(ds,y)) +
+  geom_point(aes(ds,yhat,color=factor(cutoff))) +
+  theme_bw()+
+  xlab("Date")+
+  ylab("Life Expectancy")+
+  scale_color_discrete(name = 'Cutoff')
+
+```
+
+\
+
+### Model RMSE, MAE,MAPE values from cross validation
+```{r, warning=FALSE}
+RMSE <- sqrt(mean((df_cv$y - df_cv$yhat)^2))
+
+MAE <- mean(abs(df_cv$y - df_cv$yhat))
+
+MAPE <- mean(abs((df_cv$y - df_cv$yhat)/df_cv$y))
+
+print(paste("RMSE:",round(RMSE,2)))
+print(paste("MAE:",round(MAE,2)))
+print(paste("MAPE:",round(MAPE,2)))
+```
+
+### Comparing Performance measures values of ARIMA model and Facebook Prophet model
+
+* #### ARIMA models gives the RMSE value of *0.35* which is lower than the RMSE value *2.41* of the Prophet model
+* #### ARIMA models gives the MAE value of *0.23* which is lower than the MAE value *1.18* of the Prophet model
+
+### In general for the life expectancy data the ARIMA models does a better job than the Prophet model in analysing the time series data
